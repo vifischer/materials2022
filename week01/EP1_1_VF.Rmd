@@ -1,0 +1,21 @@
+---
+title: "Epigenome 1_1"
+author: "Vincent Fischer"
+date: "2 3 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(epiwraps)
+```
+
+#Session information
+```{r}
+sessionInfo()
+```
+
+
