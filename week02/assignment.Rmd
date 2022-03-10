@@ -1,0 +1,92 @@
+---
+title: "Epigenome2_Homework"
+author: "Vincent Fischer"
+date: "7 3 2022"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(epiwraps)
+})
+```
+
+```{r}
+ah <- AnnotationHub()
+#display(ah)
+```
+#load annotation GRCm38 version 102
+
+```{r}
+ensdb_m102 <- ah[["AH89211"]]
+```
+#load genome sequence 2bit GRCm38 GRCm38.p6	2020-10-27
+```{r}
+ensdb_m2bit <- ah[["AH88477"]]
+ensdb_m2bit
+```
+#load genome sequence 2bit BDGP6 (Drosophila melanogaster) BDGP6.32 2021-10-20
+```{r}
+ensdb_d2bit <- ah[["AH99424"]]
+```
+#How many different ensembl gene IDs and gene symbols are there for protein-coding genes?
+#Protein coding transcripts
+```{r}
+#ensdb_m102
+txm <- transcripts(ensdb_m102)
+codingm <- txm$tx_biotype == "protein_coding"
+#codingm
+codingnumbertx <- sum(codingm)
+codingnumbertx
+#protin coding transcrpits are 60320
+
+```
+#Protein coding genes
+```{r}
+#ensdb_m102
+gm <- genes(ensdb_m102)
+#gm
+codinggm <- gm$gene_biotype == "protein_coding"
+#codinggm
+codingnumbergm <- sum(codinggm)
+codingnumbergm
+#protin coding genes are 22287
+```
+#Plot the distribution (histogram) of how many exons protein-coding genes
+```{r}
+#transcripts
+exsts <- exons(ensdb_m102, column=c("tx_id"))
+exsPerTx <- exonsBy(ensdb_m102, column=c("tx_id","tx_biotype"),
+                  filter=TxBiotypeFilter("protein_coding"))
+nbExonsPerPCtx <- lengths(exsPerTx)
+hist(nbExonsPerPCtx)
+
+#genes
+exsPerGene <- exonsBy(ensdb_m102, column=c("gene_id","gene_biotype"),
+                  filter=GeneBiotypeFilter("protein_coding"))
+#exsPerGene
+nbExonsPerPCGene <- lengths(exsPerGene)
+hist(nbExonsPerPCGene)
+
+
+```
+
+#Plot the distribution of the (spliced) length of protein-coding transcripts
+```{r}
+#as.numeric(unlist(width(exsPerTx)))
+head(width(exsPerTx))
+hist(as.numeric(unlist(width(exsPerTx))), xlim = c(0,6000))
+hist(mean(width(exsPerTx)), xlim = c(0,5000))
+##stranges histograms what went wrong ?
+#breaks as in number of cells number of width(exsPerTx) function
+hist((as.numeric(unlist(width(exsPerTx)))),breaks = 541340, xlim = c(0,5000))
+
+?hist
+```
+```{r}
+sessionInfo()
+```
+# around 2 hours
