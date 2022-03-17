@@ -1,0 +1,97 @@
+---
+title: "EP3_assignment"
+author: "Vincent Fischer"
+date: '2022-03-16'
+output: html_document
+---
+
+```{r, }
+setwd("D://Program Files//EpiCourse//EP3")
+
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(Rsubread)
+  library(rtracklayer)
+  library(Biostrings)
+  library(Rfastp)
+  library(epiwraps)
+})
+
+ah <- AnnotationHub()
+ensdb <- ah[["AH89211"]]
+```
+
+```{r, }
+dir.create("raw")
+download.file("https://www.encodeproject.org/files/ENCFF001LJN/@@download/ENCFF001LJN.fastq.gz", dest="raw/Myc.fastq.gz")
+
+
+```
+# trimming
+```{r, }
+dir.create("rfastp.trimmed")
+qc <- Rfastp::rfastp("raw/Myc.fastq.gz", outputFastq="rfastp.trimmed/Myc", 
+                     maxNfilter=0, thread=4, overrepresentationAnalysis=TRUE)
+```
+
+
+```{r, }
+# we get the genome sequence from AnnotationHub
+genome <- ah[["AH88477"]]
+# we create a new directory that will contain the genome index
+dir.create("GRCm38_genome")
+# we write the genome sequence in fasta format
+export(import.2bit(genome), "GRCm38_genome/genome.fasta.gz", compress=TRUE)
+# we build a Rsubread index
+Rsubread::buildindex("GRCm38_genome/rsubread", reference="GRCm38_genome/genome.fasta.gz")
+```
+# alignment
+```{r, }
+dir.create("aligned")
+align.stats <- Rsubread::align(index="GRCm38_genome/rsubread", type="dna",
+                               output_file="aligned/Myc.bam",
+                               readfile1="rfastp.trimmed/Myc_R1.fastq.gz", 
+                               nthreads=4, sortReadsByCoordinates=TRUE)
+align.stats
+```
+# mapped read are 12850067 of total reads 17184393
+# peak calling with R
+```{r}
+peaks <- callPeaks("aligned/Myc.bam")
+# if we want to save it as a bed file:
+rtracklayer::export.bed(peaks,"peaks.bed")
+sum(table(peaks))
+# peak number 26728
+# peaks[max(peaks$score)]
+# max(peaks$score)
+# hist(peaks$score)
+# peaks[peaks$score == max(peaks$score)]
+```
+# bam to bigwig
+```{r}
+dir.create("tracks")
+# bam2bw("aligned/Myc.bam", "tracks/Myc_full.bw", binWidth=3, extend=50, scaling=TRUE)
+bam2bw("aligned/Myc.bam", "tracks/Myc.bw", binWidth=10, extend=50, scaling=TRUE)
+```
+
+
+###```{bash engine.opts='-l'}
+###mkdir -p tracks
+###bamCoverage -p 2 --binSize 20 --normalizeUsing CPM -b ###aligned/Myc.bam -o tracks/Myc.bw
+###```
+
+# Looking at an example peak
+```{r coverage of any random peak, peak 42}
+plotSignalTracks(list(binned="tracks/Myc.bw", peaks=peaks), region=peaks[42], extend=5000)
+```
+
+```{r peak for specific genes}
+plotSignalTracks(list(binned="tracks/Myc.bw", peaks=peaks), region="hprt", ensdb = ensdb, extend=1000)
+```
+
+SessionINfo
+```{r}
+sessionInfo()
+```
+around 2 hours
+
