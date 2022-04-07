@@ -1,0 +1,140 @@
+---
+title: "EP6_hw"
+author: "Vincent Fischer"
+date: "6 4 2022"
+output: html_document
+---
+
+```{r,  eval=FALSE}
+setwd("C:/Users/vifischer/Document/ETHCourses/EpigenomeCOurse/EP6")
+getwd()
+```
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(memes)
+  library(Biostrings)
+  library(AnnotationHub)
+  library(MotifDb)
+  library(universalmotif)
+  library(PWMEnrich)
+  library(ggplot2)
+  library(ensembldb)
+})
+```
+# obtaining peak sequence for E14.5 erythroblast
+https://www.encodeproject.org/files/ENCFF676TDJ/
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF676TDJ/@@download/ENCFF676TDJ.bed.gz", "erythroblast_GATA1_ENCFF676TDJ.bed.gz")
+peaks <- rtracklayer::import("erythroblast_GATA1_ENCFF676TDJ.bed.gz", format="NarrowPeak")
+seqlevelsStyle(peaks) <- "Ensembl"
+peaks_chr1 <- peaks[seqnames(peaks)=="1"]
+```
+```{r}
+peak_centers <- resize(peaks_chr1, fix="center", width=100)
+# we get the genome sequence:
+ah <- AnnotationHub(localHub=FALSE)
+genome <- ah[["AH68356"]]
+genome2 <- ah[["AH89211"]]
+# we get the sequences corresponding to the peak centers:
+peak_seqs <- memes::get_sequence(peak_centers, genome)
+peak_seqs
+```
+```{r, eval=FALSE}
+#not needed for assignment
+gadem <- rGADEM::GADEM(peak_seqs, genome=genome)
+
+```
+
+```{r}
+# we search for "GATA1" in the motif database
+motifs <- query(MotifDb, "GATA1")
+# there are several matching motifs:
+names(motifs)
+# we select one:
+motif <- motifs[["Mmusculus-JASPAR_CORE-Gata1-MA0035.2"]]
+# we visualize it:
+view_motifs(motif)
+```
+
+```{r}
+#' findMotifInstances
+#'
+#' A wrapper around TFBSTools for scanning motif occurence, handling the 
+#' coordinate conversion as `memes` does.
+#' 
+#' @param seqs A set of sequences, e.g. `DNAStringSet`, optionally with 
+#'   coordinate as names to enable conversion.
+#' @param motif A motif, in any format recognized by `universalmotif`
+#' @param keepMatchedSeq Logical; whether to keep the matched sequence.
+#' @param ... Passed to `TFBSTools::searchSeq`; can for instance be used to set
+#'   the number of threads to use, e.g. with `mc.cores=2`
+#'
+#' @return A `GRanges` object
+findMotifInstances <- function(seqs, motif, keepMatchedSeq=FALSE, ...){
+  motif <- universalmotif::convert_motifs(motif, "TFBSTools-PWMatrix")
+  x <- suppressWarnings(TFBSTools::searchSeq(motif, subject=seqs))
+  peaks <- strsplit(gsub("-",":",names(seqs)), ":")
+  if(all(lengths(peaks)==3)){ # convert relative coordinates to absolute
+    chrs <- sapply(peaks,FUN=function(x) x[1])
+    offsets <- sapply(peaks,FUN=function(x) as.integer(x[2]))-1L
+    i <- rep(seq_along(x),lengths(x))
+    return(GRanges(chrs[i], 
+                   IRanges(offsets[i]+as.integer(unlist(lapply(x, start))),
+                           offsets[i]+as.integer(unlist(lapply(x, end)))),
+                   strand=unlist(lapply(x, strand)),
+                   score=as.numeric(unlist(lapply(x, FUN=function(x) score(x))))
+                   ))
+  }
+  x <- as(x, "GRanges")
+  score(x) <- x$absScore
+  keepFields <- c("score","relScore")
+  if(keepMatchedSeq) keepFields <- c(keepFields, "siteSeqs")
+  mcols(x) <- mcols(x)[,intersect(colnames(mcols(x)), keepFields)]
+  x
+}
+```
+
+```{r}
+moi <- findMotifInstances(peak_seqs, motif, mc.cores=1) # running with 2 threads
+
+```
+```{r}
+length(moi)
+length(peaks_chr1)
+
+table(overlapsAny(peaks_chr1,moi))
+table(overlapsAny(moi,peaks_chr1))
+
+(sum(overlapsAny(peaks_chr1,moi))/ length(peaks_chr1))*100
+```
+Of the 454 GATA1 peaks, 424 (93.39%) contain a motif
+
+of the 938 motif instances found all 100% overlap with a peak of the GATA1 ChIP
+
+
+```{r, eval=FALSE}
+
+moi_genome <- findMotifInstances(genome2, motif, mc.cores=1)
+```
+
+
+```{r, eval=FALSE}
+#obtain the motifs (e.g. here use the core JASPAR mouse motifs)
+motifs2 <- query(MotifDb, c("JASPAR_CORE", "Mmusculus"))
+# prepare multithreading:
+#registerCoresPWMEnrich(4)
+ #launch the analysis:
+res <- motifEnrichment(peak_seqs, convert_motifs(motifs2, "PWMEnrich-PWM"))
+# for the sake of example, we'll just use the first 300 sequences:
+#res <- motifEnrichment(head(peak_seqs, convert_motifs(motifs2, "PWMEnrich-PWM"))
+groupReport(res)
+show(res)
+?sequenceReport
+```
+Error in groupReport
+
+```{r}
+sessionInfo()
+```
+
