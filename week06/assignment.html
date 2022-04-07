@@ -315,9 +315,29 @@ findMotifInstances &lt;- function(seqs, motif, keepMatchedSeq=FALSE, ...){
 ##  938</code></pre>
 <pre class="r"><code>(sum(overlapsAny(peaks_chr1,moi))/ length(peaks_chr1))*100</code></pre>
 <pre><code>## [1] 93.39207</code></pre>
-<p>Of the 454 GATA1 peaks, 424 (93.39%) contain a motif</p>
-<p>of the 938 motif instances found all 100% overlap with a peak of the GATA1 ChIP</p>
-<pre class="r"><code>moi_genome &lt;- findMotifInstances(genome2, motif, mc.cores=1)</code></pre>
+<p>Of the 454 GATA1 peaks, 424 (93.39%) contain a motif (only chr1)</p>
+<p>of the 938 motif instances found all 100% overlap with a peak of the GATA1 ChIP (only chr1)</p>
+<pre class="r"><code>whole_genome &lt;- import( &quot;C:/Users/vifischer/Documents/ETHCourses/EpigenomeCOurse/EP3/GRCm38_genome/genome.fasta.gz&quot;)
+
+#peak_seqsgenome &lt;- memes::get_sequence(regions =  whole_genome$`1`,genome =  genome)
+whole_genome_chr1 &lt;- whole_genome[whole_genome == whole_genome$`1`]
+moi_genome_chr1 &lt;- findMotifInstances(whole_genome_chr1, motif, mc.cores=1)</code></pre>
+<pre><code>## Note: motif [motif] has an empty nsites slot, using 100.</code></pre>
+<pre class="r"><code>length(moi_genome_chr1)</code></pre>
+<pre><code>## [1] 3016097</code></pre>
+<pre class="r"><code>length(peaks_chr1)</code></pre>
+<pre><code>## [1] 454</code></pre>
+<pre class="r"><code>table(overlapsAny(peaks_chr1,moi_genome_chr1))</code></pre>
+<pre><code>## 
+## FALSE  TRUE 
+##     4   450</code></pre>
+<pre class="r"><code>table(overlapsAny(moi_genome_chr1,peaks_chr1))</code></pre>
+<pre><code>## 
+##   FALSE    TRUE 
+## 3013642    2455</code></pre>
+<pre class="r"><code>(sum(overlapsAny(moi_genome_chr1,peaks_chr1))/ length(moi_genome_chr1))*100</code></pre>
+<pre><code>## [1] 0.08139659</code></pre>
+<p>Of the total 3016097, 2455 are overlapping (around 0.081%)</p>
 <pre class="r"><code>#obtain the motifs (e.g. here use the core JASPAR mouse motifs)
 motifs2 &lt;- query(MotifDb, c(&quot;JASPAR_CORE&quot;, &quot;Mmusculus&quot;))
 # prepare multithreading:
@@ -328,8 +348,9 @@ res &lt;- motifEnrichment(peak_seqs, convert_motifs(motifs2, &quot;PWMEnrich-PWM
 #res &lt;- motifEnrichment(head(peak_seqs, convert_motifs(motifs2, &quot;PWMEnrich-PWM&quot;))
 groupReport(res)
 show(res)
-?sequenceReport</code></pre>
+sequenceReport(res,motif)</code></pre>
 <p>Error in groupReport</p>
+<pre class="r"><code>chr1 &lt;- import(genome)[[&quot;1&quot;]]</code></pre>
 <pre class="r"><code>sessionInfo()</code></pre>
 <pre><code>## R version 4.1.2 (2021-11-01)
 ## Platform: x86_64-w64-mingw32/x64 (64-bit)

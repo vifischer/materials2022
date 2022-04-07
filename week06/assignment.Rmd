@@ -108,16 +108,31 @@ table(overlapsAny(moi,peaks_chr1))
 
 (sum(overlapsAny(peaks_chr1,moi))/ length(peaks_chr1))*100
 ```
-Of the 454 GATA1 peaks, 424 (93.39%) contain a motif
+Of the `r length(peaks_chr1)` GATA1 peaks, 424 (93.39%) contain a motif (only chr1)
 
-of the 938 motif instances found all 100% overlap with a peak of the GATA1 ChIP
+of the 938 motif instances found all 100% overlap with a peak of the GATA1 ChIP (only chr1)
 
 
-```{r, eval=FALSE}
+```{r}
+whole_genome <- import( "C:/Users/vifischer/Documents/ETHCourses/EpigenomeCOurse/EP3/GRCm38_genome/genome.fasta.gz")
 
-moi_genome <- findMotifInstances(genome2, motif, mc.cores=1)
+#peak_seqsgenome <- memes::get_sequence(regions =  whole_genome$`1`,genome =  genome)
+whole_genome_chr1 <- whole_genome[whole_genome == whole_genome$`1`]
+moi_genome_chr1 <- findMotifInstances(whole_genome_chr1, motif, mc.cores=1)
+
 ```
 
+```{r}
+length(moi_genome_chr1)
+length(peaks_chr1)
+
+table(overlapsAny(peaks_chr1,moi_genome_chr1))
+table(overlapsAny(moi_genome_chr1,peaks_chr1))
+
+(sum(overlapsAny(moi_genome_chr1,peaks_chr1))/ length(moi_genome_chr1))*100
+
+```
+Of the total `r length(moi_genome_chr1)`, `r sum(overlapsAny(moi_genome_chr1,peaks_chr1))` are overlapping (around 0.081%)  
 
 ```{r, eval=FALSE}
 #obtain the motifs (e.g. here use the core JASPAR mouse motifs)
@@ -130,11 +145,15 @@ res <- motifEnrichment(peak_seqs, convert_motifs(motifs2, "PWMEnrich-PWM"))
 #res <- motifEnrichment(head(peak_seqs, convert_motifs(motifs2, "PWMEnrich-PWM"))
 groupReport(res)
 show(res)
-?sequenceReport
+sequenceReport(res,motif)
 ```
 Error in groupReport
 
+
 ```{r}
-sessionInfo()
+chr1 <- import(genome)[["1"]]
 ```
 
+
+```{r}
+sessionInfo()
