@@ -1,0 +1,133 @@
+---
+title: "EP7_hw"
+author: "Vincent Fischer"
+date: "22 4 2022"
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(epiwraps)
+  library(AnnotationHub)
+  library(MotifDb)
+  library(memes)
+  library(universalmotif)
+  library(ensembldb)
+  library(ggplot2)
+  library(magick)
+})
+ah <- AnnotationHub(localHub=TRUE)
+ensdb <- ah[["AH89211"]] #mouse ensembl db object
+```
+
+```{r, eval=FALSE}
+setwd("ETHCourses/EpigenomeCOurse/EP7/")
+```
+
+
+```{r, eval=FALSE}
+download.file("https://ethz-ins.org/content/w7/atac.chr19.bam", "atac.chr19.bam",mode ="wb")
+download.file("https://ethz-ins.org/content/w7/atac.chr19.bam.bai", "atac.chr19.bam.bai", mode ="wb")
+# if you're on a slow computer, you might also want to download the tracks that we're generating below:
+tracks <- c("full_cuts.bw", "NF_cov.bw", "NF_cuts.bw", "mono_cov.bw", "mono_cuts.bw")
+for(f in tracks){
+  download.file(paste0("https://ethz-ins.org/content/w7/",f), f)
+}
+
+```
+
+
+## Preparing tracks
+
+```{r, eval=FALSE}
+bam <- "atac.chr19.bam"
+# create a track using all fragments, computing the coverage at each position (and force Ensembl naming)
+bam2bw(bam, output_bw = "full_cov.bw", paired=TRUE, binWidth=1L, forceSeqlevelsStyle = "Ensembl")
+# create a track using all fragments, but computing the number of cuts/insertion sites at each position
+bam2bw(bam, output_bw = "full_cuts.bw", paired=TRUE, binWidth=1L, type="ends", forceSeqlevelsStyle = "Ensembl")
+# create a track using only nucleosome-free fragments, computing coverage
+bam2bw(bam, output_bw = "NF_cov.bw", paired=TRUE, binWidth=1L, minFragLength=30, 
+       maxFragLength=115, forceSeqlevelsStyle = "Ensembl")
+# create a track using only nucleosome-free fragments, computing cuts
+bam2bw(bam, output_bw = "NF_cuts.bw", paired=TRUE, binWidth=1L, minFragLength=30,
+       maxFragLength=115, type="ends", forceSeqlevelsStyle = "Ensembl")
+# create a track using only mono-nucleosome fragments, computing coverage
+bam2bw(bam, output_bw = "mono_cov.bw", paired=TRUE, binWidth=1L, minFragLength=130,
+       maxFragLength=220, forceSeqlevelsStyle = "Ensembl")
+# create a track using only mono-nucleosome fragments, computing cuts
+bam2bw(bam, output_bw = "mono_cuts.bw", paired=TRUE, binWidth=1L, minFragLength=130,
+       maxFragLength=220, type="ends", forceSeqlevelsStyle = "Ensembl")
+```
+
+## Obtaining the sites with a ARE motif
+
+```{r}
+# get ARE sites
+motif_are <- query(MotifDb, c("ARE","Mus"))[[1]]
+genome <- ah[["AH68356"]]
+# get the sequence for chr19:
+chr19 <- GRanges("19", IRanges(1L,seqlengths(genome)["19"]))
+chr19 <- setNames(getSeq(genome, chr19), "19")
+# an alternative way would have been just import(genome)["19"]
+# find motifs
+#moi <- runFimo(chr19, convert_motifs(motif)) #orfind motif instance
+moi_are <- findMotifInstances(chr19, motif = motif_are)
+#accessible motifs 
+accessible_regions <- callPeaks("atac.chr19.bam")
+seqlevelsStyle(accessible_regions) <- "Ensembl"
+accessible_motifs <- moi_are[overlapsAny(moi_are, accessible_regions)]
+#keep only motifs with a high score
+strongMotifs_are <- moi_are[moi_are$score>15]
+
+```
+
+```{r}
+getwd()
+callPeaks("atac.chr19.bam")
+```
+
+```{r}
+view_motifs(motifs = motif_are)
+```
+## Plotting signal around the motif occurences
+
+```{r}
+# we prepare the list of tracks
+tracks <- c("Full cuts"="full_cuts.bw", "NF coverage"="NF_cov.bw", "NF cuts"="NF_cuts.bw",
+            "Mono cov"="mono_cov.bw", "Mono cuts"="mono_cuts.bw")
+# extract signals around the motif occurences
+# we zoom in to 500bp around the motif centers, in windows of 5bp
+sm_are <- signal2Matrix(tracks, strongMotifs_are, w=5, extend=500)
+
+#saveRDS(sm.file ="signal_around_strong_ARE_motif.rds")
+
+#read
+# plot the signals:
+plotEnrichedHeatmaps(sm_are, trim=0.95)
+# we renormalize using border backgrounds
+# (we'll see more developed normalization methods next session)
+smb_are <- renormalizeBorders(sm_are)
+plotEnrichedHeatmaps(smb_are, trim=0.95)
+
+
+```
+## Same with accesible regions
+```{r}
+sm_access <- signal2Matrix(tracks,accessible_motifs, w=5, extend=500)
+
+#saveRDS(sm.file ="signal_around_strong_ARE_motif.rds")
+
+#read
+# plot the signals:
+plotEnrichedHeatmaps(ml = sm_access, trim=0.95)
+# we renormalize using border backgrounds
+# (we'll see more developed normalization methods next session)
+smb_access <- renormalizeBorders(sm_access)
+plotEnrichedHeatmaps(smb_access, trim=0.95)
+```
+Took around 1h for this assignment.
+
+```{r}
+sessionInfo()
+```
+
