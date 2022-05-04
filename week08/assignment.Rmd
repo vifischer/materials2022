@@ -1,0 +1,25 @@
+---
+title: "EP8-hw"
+author: "Vincent Fischer"
+date: "2 5 2022"
+output: html_document
+---
+# 1.Topic: Chromatin accessibility in sperm of chronic stressed mice
+# 2. Data origin: 
+The data which will be used was obtained by Miriam, Mahshid and myself.
+Male mice were restrained for 21 days for 90 minutes each day in a 50 ml falcon. After last day of restraint,the animals were given enough time for a whole cycle of spermiogenesis (~35 days). Then sperm was harvested and stored at -80°C until further usage.
+Sperm was thawed and 100 000 sperm cells were subjected to the omniATAC protocol (Corces).
+Libraries were obtained for 4 chronic stressed animals and 4 controls and send to sequencing (data not back yet)
+
+# 3. Analysis plan:
+I want to investigate the data in general differences of chromatin accessiblity between controls and stressed animals. Here I want to focus specifically on the nuclear response elements associated with nuclear hormone receptors associated with the stress response. Therefore, one of the main objectives will be the investigation of the GRE motifs. The data could be additonally compared to ATAC-seq of sperm obtained from Dexamethasone (GR-agonist)treated animal and checked if those profiles look similiar to the chonic stressed prrofiles.
+
+
+
+# Backup
+# Topic: Chromatin accessiblity in Tdg-KO sperm
+# Data origin: 
+Sperm of Tdg-KO animals was harvested (not by me). Tdg is an enzyme, which is able to excise Nucleotides from DNA, which suffered from deamination and therefore led to mispairing. Furthermoe, it is responsible for excision of Cytosines, which is modified e.g. 5fC. In regard to that Tdg is also important, in the prevalence of DNA modifications. 3 Tdg-Ko replicates and 2 controls were obtained with the omniATAC protocol (Sequencing data is already available).
+
+# Analysis plan:
+Chromatin accessibility should be investigated, comparing the KO and the controls. What exact regions are of interest needs to be further discussed with Kathi and Pierre-Luc
