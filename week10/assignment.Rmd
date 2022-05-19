@@ -1,0 +1,269 @@
+---
+title: "EP_10_hw"
+author: "Vincent Fischer"
+date: '2022-05-16'
+output: html_document
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(epiwraps)
+  library(ggplot2)
+  library(rGREAT)
+  library(AnnotationHub)
+  library(ensembldb)
+  library(bsseq)
+  library(BiocParallel)
+  library(edgeR)
+  library(DMRcate)
+})
+
+set.seed(40)
+```
+# download new files
+```{r}
+#download.file("https://ethz-ins.org/content/w10_assignment.zip", "w10_assignment.zip",)
+#unzip("w10_assignment.zip")
+dmr_hw <- readRDS("dmr.rds")
+bsseq_hw <- readRDS("bsseqOb.rds")
+#bsseq_hw_sm <- BSmooth(BSseq= bsseq_hw,
+                  # BPPARAM=MulticoreParam(workers = 4), 
+                   #verbose = TRUE)
+
+#getMeth(bsseqEx, regions=promoterRegions, type="smooth", what="perRegion")
+#saveRDS(bsseq_hw_sm, "bsseqOb_sm.rds")
+bsseq_hw_sm <- readRDS("bsseqOb_sm.rds")
+```
+
+```{r, eval=FALSE}
+pData(bsseq_hw_sm) <- data.frame(replicate=c(1,2,1,2),
+                             tissue=c("forbrain", "forbrain", "liver", "liver"),
+                             row.names=colnames(bsseq_hw_sm))
+
+colnames(bsseq_hw_sm) <- rownames(pData(bsseq_hw_sm))
+sampleNames(bsseq_hw_sm) <- rownames(pData(bsseq_hw_sm))
+
+tissue <- factor(pData(bsseq_hw_sm)$tissue)
+design <- model.matrix(~tissue) # design matrix
+
+# adapt for methylation data
+methdesign <- modelMatrixMeth(design)
+
+seqAnnot <- sequencing.annotate(bsseq_hw_sm, methdesign, all.cov=TRUE, coef="tissueliver", fdr=0.05)
+dmrcateRes <- dmrcate(seqAnnot, C=2, min.cpgs = 10, pcutoff=0.01)
+
+dmrRanges <- extractRanges(dmrcateRes, genome="mm10")
+
+idx <- order(dmrRanges$min_smoothed_fdr)[1:400]
+dmrRanges <- dmrRanges[idx]
+saveRDS(dmrRanges, "dmr_hw_sm.rds")
+dmrRanges <- readRDS("dmr_hw_sm.rds")
+```
+# plotting
+```{r, eval=FALSE}
+ind <- order(dmr_hw$min_smoothed_fdr)
+DMR.plot(dmr_hw,dmr = ind, phen.col=colors, CpGs=bsseq_hw, genome="mm10")
+
+DMR.plot(ranges = dmrRanges,dmr = idx,phen.col = colors,CpGs = bsseq_hw_sm,genome = "mm10")
+
+```
+
+
+
+
+## Load the Annotation data
+
+promoters
+```{r}
+ah <- AnnotationHub()
+ensdb <- ah[["AH89211"]] # GRCm38
+
+# For simplicity we assume here that the region +/- 150 of a tss constitutes a promoters
+#tssMargin <- 200
+#promoterRegions <- promoters(ensdb, upstream=tssMargin, downstream=tssMargin)
+#promoterRegions <- promoterRegions[seqnames(promoterRegions)=="1"]
+
+# Change the seqlevel manually (bit of a quick fix, check: https://github.com/Bioconductor/GenomeInfoDb/issues/27)
+#seqlevels(promoterRegions) <- seqlevelsInUse(promoterRegions)
+#seqlevel fix didnt work out
+promoterRegions <- readRDS("./data_practical/promoterRegions.rds")
+```
+
+gene bodies: 
+```{r}
+#geneBodies <- genes(ensdb, columns=c("gene_seq_start", "gene_seq_end"))
+#seqlevels(geneBodies) <- seqlevelsInUse(geneBodies)
+geneBodies <- readRDS("./data_practical/genebodies.rds")
+```
+non smoothed
+```{r}
+metSigns <- getMeth(bsseq_hw, regions=dmr_hw, type="raw", what="perRegion")
+#length(getMeth(bsseq_hw, regions=promoterRegions, type="raw", what="perRegion"))
+
+promoterRegions_raw_E13_5_rep1 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigns[,"E13_5_rep1.bed"])
+
+promoterRegions_raw_E13_5_rep2 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigns[,"E13_5_rep2.bed"])
+promoterRegions_raw_liver_adult_rep1 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigns[,"liver_adult_rep1.bed"])
+promoterRegions_raw_liver_adult_rep2 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigns[,"liver_adult_rep2.bed"])
+promoterRegions_raw_liver_adult_rep1
+```
+
+
+```{r}
+tracks <- list("RawE13Rep1" = promoterRegions_raw_E13_5_rep1[1:5000],
+                "RawE13Rep2" = promoterRegions_raw_E13_5_rep2[1:5000],
+                "rawliver1" = promoterRegions_raw_liver_adult_rep1[1:5000],
+              "rawliver2" = promoterRegions_raw_liver_adult_rep2[1:5000])
+
+
+DMS_Tss <- signal2Matrix(tracks, promoterRegions, extend=1000, w=20, type="scale", smooth= FALSE)
+
+
+plotEnrichedHeatmaps(DMS_Tss, scale_title="Proportion methylated PromoterRegions", axis_name=c("TSS","TES"), colors = c("white","red"))
+```
+
+
+```{r, eval=FALSE}
+DMS_dmr_hw <- signal2Matrix(tracks, dmr_hw, extend=1000, w=20, type="scale", smooth= FALSE)
+
+
+plotEnrichedHeatmaps(DMS_Tss[1:3], scale_title="Proportion differential methylated regions", axis_name=c("TSS","TES"), colors = c("white","red")) # error terror
+```
+
+
+
+```{r}
+set.seed(123)
+cl <- clusterSignalMatrices(DMS_Tss, k=4)
+table(cl)
+plotEnrichedHeatmaps(DMS_Tss, row_split=cl, scale_title="Proportion methylated PromoterRegions", axis_name=c("TSS","TES"), colors = c("white","red"))
+
+split_regions <- split(promoterRegions, cl)
+
+# we send the data to the GREAT server to run an enrichment analysis
+job <- submitGreatJob(split_regions[[2]], promoterRegions, species="mm10")
+res <- getEnrichmentTables(job)
+names(res)
+
+
+
+
+```
+
+```{r, fig.width=9, fig.height=6}
+bp <- res$`GO Biological Process`
+head(bp)
+
+ggplot(head(bp,20), aes(Hyper_Fold_Enrichment, name, size=Hyper_Foreground_Region_Hits, color=-log10(Hyper_Adjp_BH))) + geom_point() + scale_color_viridis_c()
+```
+There is no difference between forebrain and liver in cluster 2,which could be explained by the subsetted regions, first only chr1, then promoter regions and then only 5000 from 26000 regions. 
+
+smoothed bsseq
+with smoothed dmrRanges ( not used!)
+```{r, eval = FALSE}
+metSigsm <-getMeth(bsseq_hw_sm, regions=dmrRanges, type="smooth", what="perRegion")
+#length(getMeth(bsseq_hw_sm, regions=promoterRegions, type="smooth", what="perRegion"))
+sm_E13_5_rep1 <- GRanges(seqnames=seqnames(dmrRanges),
+                                 ranges=ranges(dmrRanges),
+                                 strand=strand(dmrRanges),
+                                 score=metSigsm[,"E13_5_rep1.bed"])
+
+sm_E13_5_rep2 <- GRanges(seqnames=seqnames(dmrRanges),
+                                 ranges=ranges(dmrRanges),
+                                 strand=strand(dmrRanges),
+                                 score=metSigsm[,"E13_5_rep2.bed"])
+
+sm_liver_adult_rep1 <- GRanges(seqnames=seqnames(dmrRanges),
+                                 ranges=ranges(dmrRanges),
+                                 strand=strand(dmrRanges),
+                                 score=metSigsm[,"liver_adult_rep1.bed"])
+
+sm_liver_adult_rep2 <- GRanges(seqnames=seqnames(dmrRanges),
+                                 ranges=ranges(dmrRanges),
+                                 strand=strand(dmrRanges),
+                                 score=metSigsm[,"liver_adult_rep2.bed"])
+
+```
+continued
+with non smoothed dmrRanges
+```{r}
+metSigsm <-getMeth(bsseq_hw_sm, regions=dmr_hw, type="smooth", what="perRegion")
+#length(getMeth(bsseq_hw_sm, regions=promoterRegions, type="smooth", what="perRegion"))
+sm_E13_5_rep1 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigsm[,"E13_5_rep1.bed"])
+
+sm_E13_5_rep2 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigsm[,"E13_5_rep2.bed"])
+
+sm_liver_adult_rep1 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigsm[,"liver_adult_rep1.bed"])
+
+sm_liver_adult_rep2 <- GRanges(seqnames=seqnames(dmr_hw),
+                                 ranges=ranges(dmr_hw),
+                                 strand=strand(dmr_hw),
+                                 score=metSigsm[,"liver_adult_rep2.bed"])
+
+```
+
+
+
+```{r, eval= FALSE}
+tracks2 <- list("smE13Rep1" = sm_E13_5_rep1,
+                "smE13Rep2" = sm_E13_5_rep2,
+                "smliver1" = sm_liver_adult_rep1,
+              "smliver2" = sm_liver_adult_rep2)
+
+
+DMS_Tss2 <- signal2Matrix(tracks2, dmr_hw, extend=1000, w=20, type="scale", smooth= TRUE)
+
+plotEnrichedHeatmaps(DMS_Tss2, scale_title="Smoothed Proportion methylated PromoterRegions", colors = c("white","red"))
+```
+
+```{r, eval= FALSE}
+set.seed(123)
+cl_sm <- clusterSignalMatrices(DMS_Tss2, k=4)
+table(cl_sm)
+plotEnrichedHeatmaps(DMS_Tss2, row_split=cl_sm, scale_title="Clustered Proportion methylated Regions", colors = c("white","red"))
+
+split_regions_sm <- split(promoterRegions, cl_sm)
+
+# we send the data to the GREAT server to run an enrichment analysis
+job_sm <- submitGreatJob(split_regions[[2]], promoterRegions, species="mm10") #or any other cluster
+res_sm <- getEnrichmentTables(job)
+names(res)
+
+
+```
+
+```{r,eval=FALSE}
+bp_sm <- res$`GO Biological Process`
+head(bp_sm)
+
+ggplot(head(bp_sm,20), aes(Hyper_Fold_Enrichment, name, size=Hyper_Foreground_Region_Hits, color=-log10(Hyper_Adjp_BH))) + geom_point() + scale_color_viridis_c()
+```
+
+Sorry for the late upload, but it took a long time to compute, and the smoothed version didnt work out at all
+
+```{r}
+sessionInfo()
+```
+Sorry for the late upload, but it took a long time to compute, and the smoothed version didnt work out at all
