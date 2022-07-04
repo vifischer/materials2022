@@ -1,0 +1,882 @@
+---
+title: "analysis_ATAC_Tdg_Ko"
+author: "VF"
+date: "9 6 2022"
+output: html_document
+---
+```{r librariers}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(ggplot2)
+  library(rGREAT)
+  library(AnnotationHub)
+  library(ensembldb)
+  library(bsseq)
+  library(BiocParallel)
+  library(edgeR)
+  library(DMRcate)
+  library(Rsamtools)
+  library(ATACseqQC)
+  library(magrittr)
+  library(BSgenome)
+  library(memes)
+  library(ggbio)
+  library(IRanges)
+  library(S4Vectors)
+  library(magick)
+  library(SummarizedExperiment) # structure to contain data+annotation
+  library(sechm) # for plotting heatmaps from SummarizedExperiment objects
+  library(edgeR) # count-based differential analysis
+  library(Rsubread) # for counting reads
+  library(ggplot2) # for plotting
+  library(patchwork) # for arranging plots together
+  library(knitr)
+  library(epiwraps)
+  })
+```
+```{r}
+ah <- AnnotationHub()
+display(ah)
+ensdb <- ah[["AH89211"]]
+```
+
+
+```{r}
+bam_tdg <- list.files("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/aligned/", pattern = "bam$")
+bam_tdg
+```
+```{r}
+bam_tdg.labels <- gsub(".{34}$", "", basename(bam_tdg[1:5])) #gsub('.{2}$', '', name); 34 for is length of string I want to get rid of
+bam_tdg.labels
+```
+
+```{r fragmentsizeplot}
+ATACseqQC::fragSizeDist(bam_tdg[1:5],bam_tdg.labels)
+```
+
+```{r fragmentsizeplot control}
+fragSizesDist("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/aligned/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bam", BPPARAM=MulticoreParam(workers = 8), what = 1000)+ xlim(0,200)#epiwraps function
+```
+
+```{r plotSignalTracks of Sos2}
+#plotSignalTracks(list(ctrl=list(ctrl1="path/to/ctrl1.bw", ctrl2="..."))
+plotSignalTracks(list(ctrl=list(ctrl1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw",ctrl2="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw"),Tdg_ko=list(Ko_1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw",Ko_2="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw",Ko_3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw")),region = "Sos2", ensdb = ensdb )
+```
+#Overall Accessibility at 5fC peak region
+```{r check with 5fC peaks in tdg ko}
+p5fc <- import("/mnt/bohacek/kathi/KG_from_victor/5fC_MACS2_2020-01-06--08-56-55/merged.bed")
+m_tdg <- signal2Matrix(c(ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw"), p5fc) #saved as object
+d_tdg <- meltSignals(m_tdg)
+ggplot(d_tdg, aes(position, mean)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+ggplot(d_tdg, aes(position, median)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+plotEnrichedHeatmaps(m_tdg
+                     )
+```
+
+```{r check 5fc peaks in control samples}
+p5fc <- import("/mnt/bohacek/kathi/KG_from_victor/5fC_MACS2_2020-01-06--08-56-55/merged.bed")
+m_ctrl <- signal2Matrix(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw"), p5fc)
+d_ctrl <- meltSignals(m_ctrl)
+ggplot(d_ctrl, aes(position, mean)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+ggplot(d_ctrl, aes(position, median)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+plotEnrichedHeatmaps(m_ctrl)
+
+#saveRDS(m_ctrl,"m_ctrl")
+```
+
+```{r without normalization}
+plotEnrichedHeatmaps(c(m_ctrl,m_tdg))
+```
+```{r with renormalized borders}
+n_m <- signal2Matrix(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw"), p5fc)
+plotEnrichedHeatmaps(renormalizeBorders(n_m))
+#saveRDS(n_m,file = "n_m")
+
+```
+
+
+
+```{r bwNormFactors}
+tracks_tdg <- list.files("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/", pattern = "bw$", full.names = TRUE)
+tracks_tdg_np <- list.files("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/", pattern = "bw$", full.names = FALSE)
+#tracks_tdg
+
+nf <- bwNormFactors(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw"))
+
+#
+
+bwNorm_n_m <- rescaleSignalMatrices(n_m,scaleFactors = nf )
+```
+
+```{r HeatMap with Normfactors}
+plotEnrichedHeatmaps(bwNorm_n_m)
+bwNorm_n_m
+nf
+```
+
+
+
+
+
+# Seperation in Nucleosome free and mononucleosome regions
+```{r}
+suppressPackageStartupMessages({
+  library(epiwraps)
+  library(GenomeInfoDb)
+})
+blacklist <- rtracklayer::import("/reference/Mus_musculus/mm10.blacklist_chrM.bed")
+seqlevelsStyle(blacklist) <- "ensembl"
+```
+
+```{r}
+getwd()
+for(f in list.files("aligned/", pattern="bam$", full=TRUE)){
+  bam2bw(f, paste0("tracks/", gsub(".{34}$",".full.bw",basename(f))), paired=TRUE, binWidth=1L, exclude=blacklist, BPPARAM = 8)
+  bam2bw(f, paste0("tracks/", gsub(".{34}$",".NF.bw",basename(f))), paired=TRUE, binWidth=1L, exclude=blacklist, minFragLength=30, maxFragLength=115, BPPARAM = 8)
+  bam2bw(f, paste0("tracks/", gsub(".{34}$",".mono.bw",basename(f))), paired=TRUE, binWidth=1L, exclude=blacklist, minFragLength=130, maxFragLength=220, BPPARAM = 8)
+  bam2bw(f, paste0("tracks/", gsub(".{34}$",".cuts_full.bw",basename(f))), paired=TRUE, binWidth=1L, type="ends", exclude=blacklist, BPPARAM = 8)
+  bam2bw(f, paste0("tracks/", gsub(".{34}$",".cuts_NF.bw",basename(f))), paired=TRUE, binWidth=1L, type="ends", exclude=blacklist, minFragLength=30, maxFragLength=115, BPPARAM = 8)
+  bam2bw(f, paste0("tracks/", gsub(".{34}$",".cuts_mono.bw",basename(f))), paired=TRUE, binWidth=1L, type="ends", exclude=blacklist, minFragLength=130, maxFragLength=220, BPPARAM = 8)
+}
+```
+# inestigation of NF and mononucleosome regions
+```{r list preparation}
+tdg_nf <- list.files("tracks/", pattern = "^Kg_tdg_ko(.*)\\.NF.bw$", full =TRUE)
+tdg_nf_cuts <-list.files("tracks/", pattern = "^Kg_tdg_ko(.*)\\cuts_NF.bw$",full =TRUE)
+tdg_mono <- list.files("tracks/", pattern = "^Kg_tdg_ko(.*)\\.mono.bw$",full =TRUE)
+tdg_mono_cuts <- list.files("tracks/", pattern = "^Kg_tdg_ko(.*)\\cuts_mono.bw$",full =TRUE)
+tdg_full <- list.files("tracks/", pattern = "^Kg_tdg_ko(.*)\\.full.bw$",full =TRUE)
+tdg_full_cuts <- list.files("tracks/", pattern = "^Kg_tdg_ko(.*)\\cuts_full.bw$", full =TRUE)
+ctrl_nf <- list.files("tracks/", pattern = "^Kg_tdg_M(.*)\\.NF.bw$", full =TRUE)
+ctrl_nf_cuts <- list.files("tracks/", pattern = "^Kg_tdg_M(.*)\\cuts_NF.bw$",full =TRUE)
+ctrl_mono <- list.files("tracks/", pattern = "^Kg_tdg_M(.*)\\.mono.bw$",full =TRUE)
+ctrl_mono_cuts <- list.files("tracks/", pattern = "^Kg_tdg_M(.*)\\cuts_mono.bw$",full =TRUE)
+ctrl_full <- list.files("tracks/", pattern = "^Kg_tdg_M(.*)\\.full.bw$",full =TRUE)
+ctrl_full_cuts <- list.files("tracks/", pattern = "^Kg_tdg_M(.*)\\cuts_full.bw$",full =TRUE)
+
+names(ctrl_nf) <- c("ctrl_M1","ctrl_M3")
+names(tdg_nf) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_nf_cuts) <- c("ctrl_M1","ctrl_M3")
+names(tdg_nf_cuts) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_mono) <- c("ctrl_M1","ctrl_M3")
+names(tdg_mono) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_mono_cuts) <- c("ctrl_M1","ctrl_M3")
+names(tdg_mono_cuts) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_full_cuts) <- c("ctrl_M1","ctrl_M3")
+names(tdg_full_cuts) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+```
+
+```{r signal to matrix with pf5c}
+setwd("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/")
+m_nf2 <- signal2Matrix(c(ctrl_nf, tdg_nf), p5fc, w = 10)
+m_nf_cuts2 <- signal2Matrix(c(ctrl_nf_cuts, tdg_nf_cuts), p5fc, w = 10)
+m_mono2 <- signal2Matrix(c(ctrl_mono, tdg_mono), p5fc, w =10)
+m_mono_cuts2 <- signal2Matrix(c(ctrl_mono_cuts, tdg_mono_cuts), p5fc,  w =10)
+m_full2<- signal2Matrix(c(ctrl_full, tdg_full), p5fc,  w =10)
+m_full_cuts2<- signal2Matrix(c(ctrl_full_cuts, tdg_full_cuts), p5fc,  w =10)
+#m_nf_bin20 <- signal2Matrix(c(ctrl_nf, tdg_nf), p5fc, BPPARAM = 4, w = 20)
+```
+```{r list of all signal matrices}
+m_list <- list("Nucleosome_Free(nonorm.)" = m_nf2,"Nucleosom_Free_Cuts(nonorm.)"= m_nf_cuts2, "Mononucleosome(nonorm.)" = m_mono2, "Mononucleosome_Cuts(nonorm.)"= m_mono_cuts2, "Full(nonorm.)"= m_full2, "Full_Cuts" = m_full_cuts2)
+```
+
+```{r plotting all non-normalized plots}
+for (i in c(1:length(m_list))){
+  pdf(as.character(paste(names(m_list[i]),".pdf")) )
+  x <- plotEnrichedHeatmaps(ml = m_list[[i]], raster_resize_mat = TRUE)
+  print(x)
+  dev.off()
+  print(x)
+}
+
+```
+```{r normalization_of_tracks}
+#nf <- bwNormFactors(tracks_tdg)
+#bwNorm_n_m <- rescaleSignalMatrices(n_m,scaleFactors = nf )
+nf_nf <- bwNormFactors(c(ctrl_nf, tdg_nf))
+nf_nf_cuts <- bwNormFactors(c(ctrl_nf_cuts, tdg_nf_cuts))
+nf_mono <- bwNormFactors(c(ctrl_mono, tdg_mono))
+nf_mono_cuts <- bwNormFactors(c(ctrl_mono_cuts, tdg_mono_cuts))
+nf_full <- bwNormFactors(c(ctrl_full, tdg_full))
+nf_full_cuts <- bwNormFactors(c(ctrl_full_cuts, tdg_full_cuts))
+
+nm_m_nf <- rescaleSignalMatrices(m_nf2,scaleFactors = nf_nf )
+nm_m_nf_cuts <- rescaleSignalMatrices(m_nf_cuts2,scaleFactors = nf_nf_cuts )
+nm_m_mono<- rescaleSignalMatrices(m_mono2,scaleFactors = nf_mono )
+nm_m_mono_cuts <- rescaleSignalMatrices(m_mono_cuts2,scaleFactors = nf_mono_cuts )
+nm_m_full <- rescaleSignalMatrices(m_full2,scaleFactors = nf_full )
+nm_m_full_cuts <- rescaleSignalMatrices(m_full_cuts2,scaleFactors = nf_full_cuts )
+
+
+
+```
+
+```{r}
+nm_m_list <- list("Nucleosome_Free(norm.)" = nm_m_nf,"Nucleosom_Free_Cuts(norm.)"= nm_m_nf_cuts, "Mononucleosome(norm.)" = nm_m_mono, "Mononucleosome_Cuts(norm.)"= nm_m_mono_cuts, "Full(norm.)"= nm_m_full, "Full_Cuts(norm.)" = nm_m_full_cuts)
+```
+
+
+```{r plotting all normalized plots}
+for (i in c(1:length(nm_m_list))){
+  pdf(as.character(paste(names(nm_m_list[i]),".pdf")) )
+  x <- plotEnrichedHeatmaps(ml = nm_m_list[[i]], raster_resize_mat = TRUE)
+  print(x)
+  dev.off()
+  print(x)
+}
+```
+
+
+```{r}
+
+x <- plotEnrichedHeatmaps(ml = m_list[[1]], name=names(m_list[[1]]), raster_resize_mat = TRUE , column_title = c("Control_1","Control_3","TDG_KO_1","TDG_KO_2","TDG_KO_3"),column_title_gp = gpar(fontsize = 11) ) 
+```
+
+```{r}
+names(m_list[[1]]) <- c("Control_1","Control_3","TDG_KO_1","TDG_KO_2","TDG_KO_3")
+scatter <- plotEnrichedHeatmaps(ml = m_list[[1]],  raster_resize_mat = TRUE , ,column_title_gp = gpar(fontsize = 11),row_title="My regions of interest", name = "bla")
+scatter
+
+
+```
+
+```{r consensus_peak_generation}
+pT1 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/NFpeaks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2_peaks.narrowPeak")
+pT2 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/NFpeaks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+pT3 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/NFpeaks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+pT1
+pT2
+pT3
+#overlapsAny(c(pT1,pT2,pT3))
+
+Tpeaks <- (c(pT1,pT2,pT3))
+#names(Tpeaks)<- gsub("_peaks\\.narrowPeak","",basename(Tpeaks))
+#regionOverlaps(Tpeaks)
+#regionUpset(Tpeaks)
+merged_Tpeaks <- reduce(unlist(GRangesList(Tpeaks)), with.revmap=TRUE)
+merged_Tpeaks <- granges(merged_Tpeaks[lengths(merged_Tpeaks$revmap)>1]) # we could change the >1 here to require a higher minimum number of samples
+merged_Tpeaks # only 869 >1 consensus peaks
+
+pM1 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/NFpeaks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+pM3 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/NFpeaks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+
+pM1
+pM3
+merged_Mpeaks <- reduce(unlist(GRangesList(c(pM1,pM3,))), with.revmap=TRUE)
+merged_Mpeaks <- granges(merged_Mpeaks[lengths(merged_Mpeaks$revmap)>1])
+merged_Mpeaks
+merged_peaks <- reduce(unlist(GRangesList(c(pM1,pM3,pT1,pT2,pT3))), with.revmap=TRUE)
+merged_peaks <- granges(merged_peaks[lengths(merged_peaks$revmap)>1])
+merged_peaks
+```
+
+
+
+```{r matrices-merged-peaks-full}
+p_m_full1 <- signal2Matrix(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw"), merged_Tpeaks,  w =1)
+p_m_full2 <- signal2Matrix(c(ctrl_full, tdg_full), merged_Tpeaks,  w =1)
+
+nf_p_m_full1 <- bwNormFactors(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw"))
+nf_p_m_full2 <- bwNormFactors(c(ctrl_full, tdg_full))
+
+nm_p_m_full1 <- rescaleSignalMatrices(p_m_full1,scaleFactors = nf_p_m_full1)
+
+nm_p_m_full2 <- rescaleSignalMatrices(p_m_full2,scaleFactors = nf_p_m_full2)
+```
+
+```{r plotting_merged_peaks}
+plotEnrichedHeatmaps(p_m_full1)
+plotEnrichedHeatmaps(p_m_full2)
+plotEnrichedHeatmaps(nm_p_m_full1)
+plotEnrichedHeatmaps(nm_p_m_full2)
+
+
+```
+
+```{r}
+cp_m_full1 <- signal2Matrix(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw"), merged_Mpeaks,  w =1)
+cp_m_full2 <- signal2Matrix(c(ctrl_full, tdg_full), merged_Mpeaks,  w =1)
+
+nf_p_m_full1 <- bwNormFactors(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw"))
+nf_p_m_full2 <- bwNormFactors(c(ctrl_full, tdg_full))
+
+nm_cp_m_full1 <- rescaleSignalMatrices(cp_m_full1,scaleFactors = nf_p_m_full1)
+
+nm_cp_m_full2 <- rescaleSignalMatrices(cp_m_full2,scaleFactors = nf_p_m_full2)
+```
+
+```{r}
+Mpeak_m_list <- list("Peaks_Control_Full_PrePro" = cp_m_full1,"Peaks_Control_Full_PrePro(norm.)"= nm_cp_m_full1, "Peaks_Control_Full_bam2bw" = cp_m_full2, "Peaks_Control_Full_bam2bw(norm.)"= nm_cp_m_full2)
+
+for (i in c(1:length(Mpeak_m_list))){
+  png(as.character(paste(names(Mpeak_m_list[i]),".png")), res =700 )
+  x <- plotEnrichedHeatmaps(ml = Mpeak_m_list[[i]], raster_resize_mat = TRUE)
+  print(x)
+  dev.off()
+  print(x)
+}
+```
+```{r matrix_generation_and_normalization}
+names(ctrl_full) <- c("ctrl_M1","ctrl_M3")
+names(tdg_full) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+m_allpeaks <- signal2Matrix(c(ctrl_full, tdg_full), merged_peaks,  w =1)
+nf_bam2bw_full <- bwNormFactors(c(ctrl_full, tdg_full))
+nm_m_allpeaks <- rescaleSignalMatrices(m_allpeaks,scaleFactors = nf_bam2bw_full)
+saveRDS(nm_m_allpeaks, file = "For_PL/nm_m_allpeaks
+        ")
+```
+
+```{r plot_generation_normalized, fig.width= 15}
+pdf("Total_Consensus_Peaks_Full_bam2bw(norm.).pdf", )
+x <-plotEnrichedHeatmaps(ml = nm_m_allpeaks, raster_resize_mat = TRUE, scale_title = "Full_bam2bw_density(norm.)", row_title="Total_Consensus_Peaks")
+print(x)
+dev.off()
+print(x)
+```
+
+
+
+```{r}
+pdf("Total_Consensus_Peaks_Full_bam2bw(norm.)2.pdf", )
+x <-plotEnrichedHeatmaps(ml = nm_m_allpeaks, raster_resize_mat = TRUE, scale_title = "Full_bam2bw_density(norm.)", row_title="Total_Consensus_Peaks")
+print(x)
+dev.off()
+print(x)
+plotEnrichedHeatmaps(ml = nm_m_allpeaks, raster_resize_mat = TRUE, scale_title = "Full_bam2bw_density(norm.)", row_title="Total_Consensus_Peaks", top_annotation = FALSE)
+```
+
+
+```{r plot_generation, fig.width= 15}
+pdf("Total_Consensus_Peaks_Full_bam2bw.pdf", width = 15 )
+x <-plotEnrichedHeatmaps(ml = m_allpeaks, raster_resize_mat = TRUE, scale_title = "Full_bam2bw_density", row_title="Total_Consensus_Peaks")
+print(x)
+dev.off()
+print(x)
+```
+
+
+
+```{r signal to matrix with total_consensus_peaks}
+setwd("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/")
+names(ctrl_nf) <- c("ctrl_M1","ctrl_M3")
+names(tdg_nf) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_nf_cuts) <- c("ctrl_M1","ctrl_M3")
+names(tdg_nf_cuts) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_mono) <- c("ctrl_M1","ctrl_M3")
+names(tdg_mono) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_mono_cuts) <- c("ctrl_M1","ctrl_M3")
+names(tdg_mono_cuts) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+m_nf_total <- signal2Matrix(c(ctrl_nf, tdg_nf), merged_peaks)
+m_nf_cuts_total <- signal2Matrix(c(ctrl_nf_cuts, tdg_nf_cuts), merged_peaks)
+m_mono_total <- signal2Matrix(c(ctrl_mono, tdg_mono), merged_peaks)
+m_mono_cuts_total <- signal2Matrix(c(ctrl_mono_cuts, tdg_mono_cuts), merged_peaks)
+
+#changed window number to before
+nf_nf <- bwNormFactors(c(ctrl_nf, tdg_nf), nwind = 40000L)
+nf_nf_cuts <- bwNormFactors(c(ctrl_nf_cuts, tdg_nf_cuts), nwind = 40000L)
+nf_mono <- bwNormFactors(c(ctrl_mono, tdg_mono), nwind = 40000L)
+nf_mono_cuts <- bwNormFactors(c(ctrl_mono_cuts, tdg_mono_cuts), nwind = 40000L)
+
+nm_m_nf_total <- rescaleSignalMatrices(m_nf_total,scaleFactors = nf_nf )
+nm_m_nf_cuts_total <- rescaleSignalMatrices(m_nf_cuts_total,scaleFactors = nf_nf_cuts )
+nm_m_mono_total<- rescaleSignalMatrices(m_mono_total,scaleFactors = nf_mono )
+nm_m_mono_cuts_total <- rescaleSignalMatrices(m_mono_cuts_total,scaleFactors = nf_mono_cuts )
+```
+
+
+```{r plotting_of_subsetted_coverage}
+tot_peak_sub_cov_list_norm <- list("Total_Consensus_Peaks_NF_bam2bw(norm.)" = nm_m_nf_total, "Total_Consensus_Peaks_Mono_bam2bw(norm.)"= nm_m_mono_total,"Total_Consensus_Peaks_NF_cuts_bam2bw(norm.)" = nm_m_nf_cuts_total, "Total_Consensus_Peaks_Mono_cuts_bam2bw(norm.)"= nm_m_mono_cuts_total)
+names(ctrl_nf) <- c("ctrl_M1","ctrl_M3")
+names(tdg_nf) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_nf_cuts) <- c("ctrl_M1","ctrl_M3")
+names(tdg_nf_cuts) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_mono) <- c("ctrl_M1","ctrl_M3")
+names(tdg_mono) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+names(ctrl_mono_cuts) <- c("ctrl_M1","ctrl_M3")
+names(tdg_mono_cuts) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO3")
+```
+
+
+```{r plotting_of_subsetted_coverage, fig.width= 15}
+for (i in c(1:length(tot_peak_sub_cov_list_norm))){
+ pdf(as.character(paste(names(tot_peak_sub_cov_list_norm[i]),".pdf")), width = 15 )
+  x <- plotEnrichedHeatmaps(ml = tot_peak_sub_cov_list_norm[[i]], raster_resize_mat = TRUE,scale_title = paste(names(tot_peak_sub_cov_list_norm[i])), row_title="Total_Consensus_Peaks")
+  print(x)
+  dev.off()
+  print(x)
+}
+```
+
+```{r, fig.width=15}
+tot_peak_sub_cov_list <- list("Total_Consensus_Peaks_NF_bam2bw " = m_nf_total, "Total_Consensus_Peaks_Mono_bam2bw "= m_mono_total,"Total_Consensus_Peaks_NF_cuts_bam2bw " = m_nf_cuts_total, "Total_Consensus_Peaks_Mono_cuts_bam2bw "=  m_mono_cuts_total)
+
+for (i in c(1:length(tot_peak_sub_cov_list))){
+ pdf(as.character(paste(names(tot_peak_sub_cov_list[i]),".pdf")), width = 15 )
+  x <- plotEnrichedHeatmaps(ml = tot_peak_sub_cov_list[[i]], raster_resize_mat = TRUE,scale_title = paste(names(tot_peak_sub_cov_list[i])), row_title="Total_Consensus_Peaks")
+  print(x)
+  dev.off()
+  print(x)
+}
+```
+```{r control_for_signal_to_noise_ratio}
+getwd()
+bamfiles <- list.files("aligned", pattern="bam$", full=TRUE)
+# we give the samples clean names:
+names(bamfiles) <- gsub(".{34}$","", x = bamfiles)
+
+bamfiles <- c(bamfiles[4],bamfiles[5],bamfiles[1],bamfiles[2],bamfiles[3])
+
+bamfiles
+```
+
+```{r consensus broad peaks}
+bpT1 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/peaks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2_peaks.broadPeak")
+bpT2 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/peaks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1_peaks.broadPeak")
+bpT3 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/peaks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1_peaks.broadPeak")
+bpM1 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/peaks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1_peaks.broadPeak")
+bpM3 <- rtracklayer::import("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/peaks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1_peaks.broadPeak")
+
+peak_list <- c(bpM1,bpM3,bpT1,bpT2,bpT3)
+
+seqlevelsStyle(bpT1)
+merged_bpeaks <- reduce(unlist(GRangesList(peak_list)), with.revmap=TRUE)
+y <- keepStandardChromosomes(merged_bpeaks, pruning.mode = "coarse")
+merged_bpeaks <- granges(y[lengths(y$revmap)>1])
+blacklist <- import("/reference/Mus_musculus/mm10.blacklist_chrM.bed")
+seqlevelsStyle(blacklist) <- "ensembl"
+merged_bpeaks <- merged_bpeaks[!overlapsAny(merged_bpeaks, blacklist)]# thats how you get rid of blacklisted peaks!!!!
+merged_bpeaks
+```
+
+
+
+```{r}
+
+anno <- cbind(name=as.character(merged_bpeaks), as.data.frame(merged_bpeaks))
+anno$width <- NULL
+colnames(anno) <- c("GeneID", "Chr", "Start", "End", "Strand")
+fc <- featureCounts( files=bamfiles,    # the files in which we want to count reads
+                     isPairedEnd=TRUE,
+                     annot.ext=anno,    # the regions in which we want to count reads
+                     readExtension3=50, # extend the reads by 50bp
+                     nthreads=3         # multithreading (to speed up)
+                    )
+saveRDS(fc, file = "fc.RDS") 
+```
+
+```{r}
+se <- SummarizedExperiment(assays=list(counts=fc$counts), rowRanges=merged_bpeaks )
+se
+assay(se)[1]
+
+```
+
+```{r}
+head(assay(se))
+head(assays(se)$counts)
+edgeR::maPlot(assay(se)[,1], assay(se)[,2], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se)[,1], assay(se)[,3], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se)[,1], assay(se)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se)[,1], assay(se)[,5], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se)[,3], assay(se)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se)[,3], assay(se)[,5], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+```
+```{r}
+plot(assay(se)[,1], assay(se)[,2], log="xy")
+
+abline(a=0, b=1)
+colSums(assay(se))
+LSD::heatscatter(log1p(rowMeans(assay(se)[,c(1,3)])), log1p(assay(se)[,3])-log1p(assay(se)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se)[,c(1,4)])), log1p(assay(se)[,4])-log1p(assay(se)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se)[,c(1,5)])), log1p(assay(se)[,5])-log1p(assay(se)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se)[,c(1,2)])), log1p(assay(se)[,1])-log1p(assay(se)[,2]), ylim=c(-3,1.5), xlim=c(1,7))
+```
+```{r}
+edgeR::plotMD(calcNormFactors(DGEList(y, group=rep(1:2,each=2))))
+```
+
+
+
+```{r}
+dds <- DGEList(assay(se), group=se$condition)
+dds <- calcNormFactors(dds)
+assays(se)$tmm.logcpm <- log1p(cpm(dds))
+sechm(se, head(row.names(se),500), assayName="tmm.logcpm", do.scale = TRUE)
+
+```
+
+```{r}
+
+dds$samples
+```
+
+
+```{r}
+rowData(se)$medianEnr <-matrixStats::rowMedians(assays(se)$tmm.logcpm) 
+w <- head(order(rowData(se)$medianEnr, decreasing=TRUE), 200)
+dds2 <- calcNormFactors(dds[w,,keep.lib.sizes=TRUE])
+dds2$samples
+dds$samples$norm.factors <- dds2$samples$norm.factors                                                
+```
+
+```{r}
+dds
+
+assays(se)$logcpm <- log1p(cpm(dds))
+
+sechm(se, head(row.names(se),500), assayName="logcpm", do.scale = TRUE)
+```
+### redo with more stringent consensus peaks >2
+
+```{r}
+merged_bpeaks2 <- reduce(unlist(GRangesList(peak_list)), with.revmap=TRUE)
+y <- keepStandardChromosomes(merged_bpeaks2, pruning.mode = "coarse")
+merged_bpeaks2 <- granges(y[lengths(y$revmap)>2])
+blacklist <- import("/reference/Mus_musculus/mm10.blacklist_chrM.bed")
+seqlevelsStyle(blacklist) <- "ensembl"
+merged_bpeaks2 <- merged_bpeaks2[!overlapsAny(merged_bpeaks2, blacklist)]# thats how you get rid of blacklisted peaks!!!!
+merged_bpeaks2
+```
+
+
+
+```{r}
+
+anno2 <- cbind(name=as.character(merged_bpeaks2), as.data.frame(merged_bpeaks2))
+anno2$width <- NULL
+colnames(anno2) <- c("GeneID", "Chr", "Start", "End", "Strand")
+fc2 <- featureCounts( files=bamfiles,    # the files in which we want to count reads
+                     isPairedEnd=TRUE,
+                     annot.ext=anno2,    # the regions in which we want to count reads
+                     readExtension3=50, # extend the reads by 50bp
+                     nthreads=3         # multithreading (to speed up)
+                    )
+saveRDS(fc2, file = "fc2.RDS") 
+```
+
+```{r}
+se2 <- SummarizedExperiment(assays=list(counts=fc2$counts), rowRanges=merged_bpeaks2 )
+se2
+```
+
+
+
+```{r}
+head(assay(se))
+edgeR::maPlot(assay(se2)[,1], assay(se2)[,2], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se2)[,1], assay(se2)[,3], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se2)[,1], assay(se2)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se2)[,1], assay(se2)[,5], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se2)[,3], assay(se2)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+```
+```{r}
+LSD::heatscatter(log1p(rowMeans(assay(se2)[,c(1,3)])), log1p(assay(se2)[,3])-log1p(assay(se2)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se2)[,c(1,4)])), log1p(assay(se2)[,4])-log1p(assay(se2)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se2)[,c(1,5)])), log1p(assay(se2)[,5])-log1p(assay(se2)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se2)[,c(1,2)])), log1p(assay(se2)[,1])-log1p(assay(se2)[,2]), ylim=c(-3,1.5), xlim=c(1,7))
+```
+### even more stringent
+
+
+```{r}
+merged_bpeaks3 <- reduce(unlist(GRangesList(peak_list)), with.revmap=TRUE)
+y <- keepStandardChromosomes(merged_bpeaks3, pruning.mode = "coarse")
+merged_bpeaks3 <- granges(y[lengths(y$revmap)>3])
+blacklist <- import("/reference/Mus_musculus/mm10.blacklist_chrM.bed")
+seqlevelsStyle(blacklist) <- "ensembl"
+merged_bpeaks3 <- merged_bpeaks3[!overlapsAny(merged_bpeaks3, blacklist)]# thats how you get rid of blacklisted peaks!!!!
+merged_bpeaks3
+```
+
+```{r}
+anno3 <- cbind(name=as.character(merged_bpeaks3), as.data.frame(merged_bpeaks3))
+anno3$width <- NULL
+colnames(anno3) <- c("GeneID", "Chr", "Start", "End", "Strand")
+fc2 <- featureCounts( files=bamfiles,    # the files in which we want to count reads
+                     isPairedEnd=TRUE,
+                     annot.ext=anno3,    # the regions in which we want to count reads
+                     readExtension3=50, # extend the reads by 50bp
+                     nthreads=3         # multithreading (to speed up)
+                    )
+
+saveRDS(fc3, file = "fc3.RDS") 
+```
+
+```{r}
+se3 <- SummarizedExperiment(assays=list(counts=fc3$counts), rowRanges=merged_bpeaks3 )
+se3
+```
+```{r}
+edgeR::maPlot(assay(se3)[,1], assay(se3)[,2], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se3)[,1], assay(se3)[,3], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se3)[,1], assay(se3)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se3)[,1], assay(se3)[,5], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se3)[,3], assay(se3)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+```
+```{r}
+LSD::heatscatter(log1p(rowMeans(assay(se3)[,c(1,3)])), log1p(assay(se3)[,3])-log1p(assay(se3)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se3)[,c(1,4)])), log1p(assay(se3)[,4])-log1p(assay(se3)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se3)[,c(1,5)])), log1p(assay(se3)[,5])-log1p(assay(se3)[,1]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se3)[,c(1,2)])), log1p(assay(se3)[,1])-log1p(assay(se3)[,2]), ylim=c(-3,1.5), xlim=c(1,7))
+LSD::heatscatter(log1p(rowMeans(assay(se3)[,c(3,4)])), log1p(assay(se3)[,3])-log1p(assay(se3)[,4]), ylim=c(-3,1.5), xlim=c(1,7))
+
+```
+
+
+```{r}
+dds <- estimateDisp(dds)
+dds
+et <- as.data.frame(topTags(exactTest(dds),n=Inf))
+head(et)
+ggplot(et, aes(logFC, -log10(FDR))) + geom_point() + 
+  geom_hline(yintercept=-log10(0.05), linetype="dashed")
+```
+
+
+### look at MAplots of NF peaks/bams
+```{r loading_NFbam_NFpeaks}
+tdg_nfp1 <- rtracklayer::import("NFpeaks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2_peaks.narrowPeak")
+tdg_nfp2 <- rtracklayer::import("NFpeaks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+tdg_nfp3 <- rtracklayer::import("NFpeaks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+ctrl_nfp1 <- rtracklayer::import("NFpeaks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+ctrl_nfp3 <- rtracklayer::import("NFpeaks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1_peaks.narrowPeak")
+
+merged_nfpeaks <- reduce(unlist(GRangesList(c(ctrl_nfp1,ctrl_nfp3,tdg_nfp1,tdg_nfp2,tdg_nfp3))), with.revmap=TRUE)
+y <- keepStandardChromosomes(merged_nfpeaks, pruning.mode = "coarse")
+merged_nfpeaks <- granges(y[lengths(y$revmap)>1])
+blacklist <- import("/reference/Mus_musculus/mm10.blacklist_chrM.bed")
+seqlevelsStyle(blacklist) <- "ensembl"
+merged_nfpeaks <- merged_nfpeaks[!overlapsAny(merged_nfpeaks, blacklist)]# thats how you get rid of blacklisted peaks!!!!
+merged_nfpeaks
+
+bamfiles <- list.files("NFbam", pattern="bam$", full=TRUE)
+# we give the samples clean names:
+names(bamfiles) <- gsub(".{42}$","", x = bamfiles)
+
+bamfiles <- c(bamfiles[4],bamfiles[5],bamfiles[1],bamfiles[2],bamfiles[3])
+
+bamfiles
+```
+```{r}
+anno_nf <- cbind(name=as.character(merged_nfpeaks), as.data.frame(merged_nfpeaks))
+anno_nf$width <- NULL
+colnames(anno_nf) <- c("GeneID", "Chr", "Start", "End", "Strand")
+fc_nf <- featureCounts( files=bamfiles,    # the files in which we want to count reads
+                     isPairedEnd=TRUE,
+                     annot.ext=anno_nf,    # the regions in which we want to count reads
+                     readExtension3=50, # extend the reads by 50bp
+                     nthreads=3         # multithreading (to speed up)
+                    )
+
+saveRDS(fc_nf, file = "fc_nf.RDS") 
+```
+
+```{r}
+se_nf <- SummarizedExperiment(assays=list(counts=fc_nf$counts), rowRanges=merged_nfpeaks )
+se_nf
+head(assay(se_nf))
+```
+
+
+
+```{r}
+edgeR::maPlot(assay(se_nf)[,1], assay(se_nf)[,2], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se_nf)[,1], assay(se_nf)[,3], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se_nf)[,1], assay(se_nf)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se_nf)[,1], assay(se_nf)[,5], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+edgeR::maPlot(assay(se_nf)[,3], assay(se_nf)[,4], lowess=TRUE, ylab="M (log2 foldchange)", 
+              xlab="A (mean log-count)"); abline(h=0, lty="dashed")
+```
+
+```{r}
+LSD::heatscatter(log1p(rowMeans(assay(se_nf)[,c(1,3)])), log1p(assay(se_nf)[,1])-log1p(assay(se_nf)[,3]), ylim=c(-3,3), xlim=c(0,7))
+LSD::heatscatter(log1p(rowMeans(assay(se_nf)[,c(1,4)])), log1p(assay(se_nf)[,1])-log1p(assay(se_nf)[,4]), ylim=c(-3,3), xlim=c(0,7))
+LSD::heatscatter(log1p(rowMeans(assay(se_nf)[,c(1,5)])), log1p(assay(se_nf)[,1])-log1p(assay(se_nf)[,5]), ylim=c(-3,3), xlim=c(0,7))
+LSD::heatscatter(log1p(rowMeans(assay(se_nf)[,c(1,2)])), log1p(assay(se_nf)[,1])-log1p(assay(se_nf)[,2]), ylim=c(-3,3), xlim=c(0,7))
+LSD::heatscatter(log1p(rowMeans(assay(se_nf)[,c(3,4)])), log1p(assay(se_nf)[,3])-log1p(assay(se_nf)[,4]), ylim=c(-3,3), xlim=c(0,7))
+LSD::heatscatter(log1p(rowMeans(assay(se_nf)[,c(3,5)])), log1p(assay(se_nf)[,3])-log1p(assay(se_nf)[,5]), ylim=c(-3,3), xlim=c(0,7))
+LSD::heatscatter(log1p(rowMeans(assay(se_nf)[,c(4,5)])), log1p(assay(se_nf)[,4])-log1p(assay(se_nf)[,5]), ylim=c(-3,3), xlim=c(0,7))
+```
+
+
+```{r}
+suppressPackageStartupMessages({
+  library(epiwraps)
+  library(GenomeInfoDb)
+})
+blacklist <- rtracklayer::import("/reference/Mus_musculus/mm10.blacklist_chrM.bed")
+seqlevelsStyle(blacklist) <- "ensembl"
+```
+
+```{r}
+getwd()
+for(f in list.files("NFbam//", pattern="bam$", full=TRUE)){
+  bam2bw(f, paste0("NFtracks/", gsub(".{42}$",".NFfull.bw",basename(f))), paired=TRUE, binWidth=1L, exclude=blacklist, BPPARAM = 8,includeDuplicates = FALSE)
+  bam2bw(f, paste0("NFtracks/", gsub(".{42}$",".cuts_NFfull.bw",basename(f))), paired=TRUE, binWidth=1L, type="ends", exclude=blacklist, BPPARAM = 8, includeDuplicates = FALSE)
+} #bigwig generated with NFbam files
+
+
+```
+```{r}
+getwd()
+for(f in list.files("aligned/", pattern="bam$", full=TRUE)){
+  bam2bw(f, paste0("NFtracks/", gsub(".{34}$",".NF_2.bw",basename(f))), paired=TRUE, binWidth=1L, exclude=blacklist, minFragLength=40, maxFragLength=115, BPPARAM = 8, includeDuplicates = FALSE)
+  bam2bw(f, paste0("NFtracks/", gsub(".{34}$",".cuts_NF_2.bw",basename(f))), paired=TRUE, binWidth=1L, type="ends", exclude=blacklist, minFragLength=40, maxFragLength=115, BPPARAM = 8, includeDuplicates = FALSE)
+} #bigwig generated with totalbam files
+```
+
+```{r}
+t_nf_full <- list.files("NFtracks/", pattern = "^Kg_tdg_ko(.*)\\.NFfull.bw$", full =TRUE) # NFbam origin
+ctrl_nf_full <- list.files("NFtracks/", pattern = "^Kg_tdg_M(.*)\\.NFfull.bw$", full =TRUE)
+
+t_nf_full2 <- list.files("NFtracks/", pattern = "^Kg_tdg_ko(.*)\\.NF_2.bw$", full =TRUE) #total_bam origin
+ctrl_nf_full2 <- list.files("NFtracks/", pattern = "^Kg_tdg_M(.*)\\.NF_2.bw$", full =TRUE)
+```
+
+
+
+```{r, fig.width=15}
+names(ctrl_nf_full2) <- c("Ctrl_1","Ctrl_2")
+
+names(t_nf_full2) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO1")
+m_nfnf2 <- signal2Matrix(c(ctrl_nf_full2,t_nf_full2),merged_nfpeaks,verbose = FALSE)
+ png("EnrichmentPlotNFpeaksNFbw(tot_bam).png", width = 1024,height = 768 )
+  x <- plotEnrichedHeatmaps(ml = m_nfnf2, raster_resize_mat = TRUE,scale_title = "NFbw_NFbed_density(tot_bam)", row_title="Total_Consensus_NFPeaks")
+  print(x)
+  dev.off()
+  print(x)
+
+
+    
+ 
+```
+
+
+
+```{r}
+nm_nfnf2 <- bwNormFactors(c(ctrl_nf_full2,t_nf_full2))
+ png("EnrichmentPlotNFpeaksNFbw(NFbam_norm)2.png", width = 1024,height = 768 )
+  x <- plotEnrichedHeatmaps(ml =   rescaleSignalMatrices(m_nfnf2,scaleFactors = nm_nfnf2 ), raster_resize_mat = TRUE,scale_title = "NFbw_NFbed_density(norm.background)+1", row_title="Total_Consensus_NFPeaks")
+  print(x)
+  dev.off()
+  print(x)
+```
+
+
+```{r, fig.width=15}
+names(ctrl_nf_full) <- c("Ctrl_1","Ctrl_2")
+names(t_nf_full) <- c("Tdg_KO1","Tdg_KO2","Tdg_KO1")
+m_nfnf <- signal2Matrix(c(ctrl_nf_full,t_nf_full),merged_nfpeaks,verbose = FALSE)
+ png("EnrichmentPlotNFpeaksNFbw(NFbam).png", width = 1024,height = 768 )
+  x <- plotEnrichedHeatmaps(ml = m_nfnf, raster_resize_mat = TRUE,scale_title = "NFbw_NFbed_density(NFbam)", row_title="Total_Consensus_NFPeaks")
+  print(x)
+  dev.off()
+  print(x)
+  
+
+
+```
+
+```{r}
+nm_nfnf <- bwNormFactors(c(ctrl_nf_full,t_nf_full))
+ png("EnrichmentPlotNFpeaksNFbw(NFbam_norm).png", width = 1024,height = 768 )
+  x <- plotEnrichedHeatmaps(ml =   rescaleSignalMatrices(m_nfnf,scaleFactors = nm_nfnf ), raster_resize_mat = TRUE,scale_title = "NFbw_NFbed_density(NFbam_norm.background)", row_title="Total_Consensus_NFPeaks")
+  print(x)
+  dev.off()
+  print(x)
+```
+
+
+```{r MAnormalization trial}
+normfactorMA <- bwNormFactors(c(ctrl_nf_full,t_nf_full),peaks = c(ctrl_nfp1,ctrl_nfp3,tdg_nfp1,tdg_nfp2,tdg_nfp3))
+```
+
+
+
+```{r}
+
+```
+
+#Overall Accessibility (promoter)
+```{r}
+promoters(x = ensdb, upstream = 1000, downstream = 100)
+```
+
+```{r}
+txs <- transcripts(ensdb)
+head(txs)
+proms <- promoters(txs, upstream = 1000, downstream = 100)
+proms
+txs
+```
+
+```{r check with promoters AH89211 in tdg ko}
+
+proms_m_tdg <- signal2Matrix(c(ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw"), head(proms,100000),BPPARAM = 8) #saved as object
+proms_d_tdg <- meltSignals(proms_m_tdg)
+ggplot(proms_d_tdg, aes(position, mean)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+ggplot(d_tdg, aes(position, median)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+plotEnrichedHeatmaps(proms_m_tdg
+                     )
+
+```
+
+```{r check 5fc peaks in control samples}
+
+proms_m_ctrl <- signal2Matrix(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw"), head(p5fc,14000))
+proms_d_ctrl <- meltSignals(m_ctrl)
+ggplot(proms_d_ctrl, aes(position, mean)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+ggplot(proms_d_ctrl, aes(position, median)) + geom_vline(xintercept=0, linetype="dashed") + geom_line()
+plotEnrichedHeatmaps(proms_m_ctrl)
+
+#saveRDS(m_ctrl,"m_ctrl")
+```
+
+```{r without normalization}
+plotEnrichedHeatmaps(c(proms_m_ctrl,proms_m_tdg))
+```
+
+```{r with renormalized borders}
+proms_n_m <- signal2Matrix(c(ctrl_M1="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_1_EKDL220003835-1a_HJ5T2DSX3_L1.bw", ctrl_M3 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_M_3_EKDL220003836-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg1 = "/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_1_EKDL220000948-1a_H22J7DSX3_L2.bw", ATAC_Tdg2 ="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_2_EKDL220003833-1a_HJ5T2DSX3_L1.bw", ATAC_Tdg3="/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/Kg_tdg_ko_3_EKDL220003834-1a_HJ5T2DSX3_L1.bw"), proms, BPPARAM = 8)
+plotEnrichedHeatmaps(renormalizeBorders(proms_n_m))
+#saveRDS(n_m,file = "n_m")
+
+```
+
+
+
+```{r bwNormFactors}
+tracks_tdg <- list.files("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/", pattern = "bw$", full.names = TRUE) #original bam files generated during preprocessing
+tracks_tdg_np <- list.files("/mnt/bohacek/kathi/vincent/ATAC_tdg_Ko/tracks/", pattern = "bw$", full.names = FALSE)
+#tracks_tdg
+nf <- bwNormFactors(tracks_tdg)
+#
+bwNorm_proms_n_m <- rescaleSignalMatrices(n_m,scaleFactors = nf )
+```
+
+```{r HeatMap with Normfactors}
+plotEnrichedHeatmaps(bwNorm_proms_n_m)
+```
+
+
+
